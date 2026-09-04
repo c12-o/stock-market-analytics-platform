@@ -189,7 +189,13 @@ function App() {
       </div>
 
       {error && <div className="status error">⚠ {error}</div>}
-      {!error && loading && <div className="status">Fetching {ticker} data…</div>}
+     {!error && loading && (
+  <div className="status">
+    {loadingElapsed < 8
+      ? `Fetching ${ticker} data…`
+      : "Waking up the server, hang tight… free hosting takes a short nap after inactivity 😴"}
+  </div>
+)}
 
       {!error && !loading && last && (
         <>
