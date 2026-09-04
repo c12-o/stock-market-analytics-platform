@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stock Market Analytics Platform</title>
+
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+
+<style>
+  :root{
+    --bg:#0c0f14; --card:#151a22; --line:#232a35;
+    --text:#e7e9ee; --muted:#8a91a0; --accent:#7c9eff; --green:#3ecf8e; --red:#ff6b6b;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:'Segoe UI',Arial,sans-serif;}
+  .app{max-width:1180px;margin:0 auto;padding:32px 24px 80px;}
+  header{margin-bottom:28px;}
+  header h1{font-size:26px;font-weight:800;}
+  header p{color:var(--muted);font-size:14px;margin-top:4px;}
+
+  .controls{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px;}
+  .controls input, .controls select{
+    background:var(--card);border:1px solid var(--line);color:var(--text);
+    padding:10px 14px;border-radius:8px;font-size:14px;
+  }
+  .controls button{
+    background:var(--accent);color:#0c0f14;border:none;font-weight:700;
+    padding:10px 20px;border-radius:8px;cursor:pointer;font-size:14px;
+  }
+  .controls button:disabled{opacity:0.5;cursor:default;}
+
+  .summary-row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:26px;}
+  .summary-card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;}
+  .summary-card .label{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px;}
+  .summary-card .value{font-size:20px;font-weight:700;}
+  .up{color:var(--green);}
+  .down{color:var(--red);}
+
+  .chart-card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:20px;}
+  .chart-card h3{font-size:15px;margin-bottom:14px;color:var(--muted);font-weight:600;}
+  .chart-wrap{position:relative;height:320px;}
+  .chart-wrap.small{height:220px;}
+
+  .status{color:var(--muted);font-size:14px;padding:40px 0;text-align:center;}
+  .error{color:var(--red);}
+
+  @media (max-width:820px){
+    .summary-row{grid-template-columns:repeat(2,1fr);}
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+// ---- Set this to your deployed backend URL once you deploy the API ----
+const API_BASE = window.STOCK_API_BASE || "http://localhost:8000";
+
+function useChart(canvasRef, config) {
+  const chartRef = useRef(null);
+  useEffect(() => {
+    if (!canvasRef.current || !config) return;
+    if (chartRef.current) chartRef.current.destroy();
+    chartRef.current = new Chart(canvasRef.current, config);
+    return () => { if (chartRef.current) chartRef.current.destroy(); };
+  }, [config]);
+}
+
+function ChartCard({ title, config, small }) {
+  const ref = useRef(null);
+  useChart(ref, config);
+  return (
+    <div className="chart-card">
+      <h3>{title}</h3>
+      <div className={"chart-wrap" + (small ? " small" : "")}>
+        <canvas ref={ref}></canvas>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [ticker, setTicker] = useState("AAPL");
+  const [inputVal, setInputVal] = useState("AAPL");
+  const [period, setPeriod] = useState("6mo");
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const fetchData = async (t, p) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/stock/${t}?period=${p}&interval=1d`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `Request failed (${res.status})`);
+      }
+      const json = await res.json();
+      setData(json);
+    } catch (e) {
+      setError(e.message);
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchData(ticker, period); }, [ticker, period]);
+
+  const rows = data ? data.data : [];
+  const labels = rows.map(r => r.date);
+
+  const priceConfig = rows.length ? {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        { label: "Close", data: rows.map(r => r.Close), borderColor: "#7c9eff", pointRadius: 0, borderWidth: 2, tension: 0.15 },
+        { label: "MA 20", data: rows.map(r => r.MA_20), borderColor: "#3ecf8e", pointRadius: 0, borderWidth: 1.5, tension: 0.15 },
+        { label: "MA 50", data: rows.map(r => r.MA_50), borderColor: "#f5a623", pointRadius: 0, borderWidth: 1.5, tension: 0.15 },
+        { label: "BB Upper", data: rows.map(r => r.BB_Upper), borderColor: "rgba(255,255,255,0.25)", pointRadius: 0, borderWidth: 1, borderDash: [4,4] },
+        { label: "BB Lower", data: rows.map(r => r.BB_Lower), borderColor: "rgba(255,255,255,0.25)", pointRadius: 0, borderWidth: 1, borderDash: [4,4] },
+      ]
+    },
+    options: baseOptions()
+  } : null;
+
+  const rsiConfig = rows.length ? {
+    type: "line",
+    data: { labels, datasets: [{ label: "RSI (14)", data: rows.map(r => r.RSI_14), borderColor: "#ff6b6b", pointRadius: 0, borderWidth: 2 }] },
+    options: baseOptions({ min: 0, max: 100 })
+  } : null;
+
+  const macdConfig = rows.length ? {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        { label: "MACD", data: rows.map(r => r.MACD), borderColor: "#7c9eff", pointRadius: 0, borderWidth: 2 },
+        { label: "Signal", data: rows.map(r => r.MACD_Signal), borderColor: "#f5a623", pointRadius: 0, borderWidth: 1.5 },
+      ]
+    },
+    options: baseOptions()
+  } : null;
+
+  const volConfig = rows.length ? {
+    type: "line",
+    data: { labels, datasets: [{ label: "Volatility % (annualized)", data: rows.map(r => r.Volatility), borderColor: "#c77dff", pointRadius: 0, borderWidth: 2 }] },
+    options: baseOptions()
+  } : null;
+
+  const last = rows.length ? rows[rows.length - 1] : null;
+  const prev = rows.length > 1 ? rows[rows.length - 2] : null;
+  const change = last && prev ? last.Close - prev.Close : null;
+  const changePct = last && prev ? (change / prev.Close) * 100 : null;
+
+  return (
+    <div className="app">
+      <header>
+        <h1>📈 Stock Market Analytics Platform</h1>
+        <p>Real-time historical data, moving averages, RSI, MACD, Bollinger Bands &amp; volatility.</p>
+      </header>
+
+      <div className="controls">
+        <input
+          value={inputVal}
+          onChange={e => setInputVal(e.target.value.toUpperCase())}
+          onKeyDown={e => e.key === "Enter" && setTicker(inputVal.trim())}
+          placeholder="Ticker e.g. AAPL, MSFT, TSLA"
+        />
+        <select value={period} onChange={e => setPeriod(e.target.value)}>
+          <option value="1mo">1 Month</option>
+          <option value="3mo">3 Months</option>
+          <option value="6mo">6 Months</option>
+          <option value="1y">1 Year</option>
+          <option value="2y">2 Years</option>
+          <option value="5y">5 Years</option>
+        </select>
+        <button disabled={loading} onClick={() => setTicker(inputVal.trim())}>
+          {loading ? "Loading..." : "Analyze"}
+        </button>
+      </div>
+
+      {error && <div className="status error">⚠ {error}</div>}
+      {!error && loading && <div className="status">Fetching {ticker} data…</div>}
+
+      {!error && !loading && last && (
+        <>
+          <div className="summary-row">
+            <div className="summary-card">
+              <div className="label">Last Close</div>
+              <div className="value">${last.Close?.toFixed(2)}</div>
+            </div>
+            <div className="summary-card">
+              <div className="label">Change</div>
+              <div className={"value " + (change >= 0 ? "up" : "down")}>
+                {change >= 0 ? "+" : ""}{change?.toFixed(2)} ({changePct?.toFixed(2)}%)
+              </div>
+            </div>
+            <div className="summary-card">
+              <div className="label">RSI (14)</div>
+              <div className="value">{last.RSI_14 ? last.RSI_14.toFixed(1) : "—"}</div>
+            </div>
+            <div className="summary-card">
+              <div className="label">Volatility (ann.)</div>
+              <div className="value">{last.Volatility ? last.Volatility.toFixed(1) + "%" : "—"}</div>
+            </div>
+          </div>
+
+          <ChartCard title={`${data.ticker} — Price, Moving Averages & Bollinger Bands`} config={priceConfig} />
+          <ChartCard title="RSI (14)" config={rsiConfig} small />
+          <ChartCard title="MACD" config={macdConfig} small />
+          <ChartCard title="Volatility (annualized, %)" config={volConfig} small />
+        </>
+      )}
+    </div>
+  );
+}
+
+function baseOptions(yOverrides) {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: "index", intersect: false },
+    plugins: {
+      legend: { labels: { color: "#8a91a0", boxWidth: 12, font: { size: 11 } } },
+      tooltip: { mode: "index", intersect: false },
+    },
+    scales: {
+      x: { ticks: { color: "#8a91a0", maxTicksLimit: 8, font: { size: 10 } }, grid: { color: "rgba(255,255,255,0.04)" } },
+      y: { ticks: { color: "#8a91a0", font: { size: 10 } }, grid: { color: "rgba(255,255,255,0.04)" }, ...yOverrides },
+    },
+  };
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
